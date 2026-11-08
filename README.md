@@ -1,5 +1,5 @@
 # Smart Pulse Oximeter
-Team 6 
+## Team - 6 
 ## Working Steps
 [Click here to view the working steps](Working-Steps.md)
 
