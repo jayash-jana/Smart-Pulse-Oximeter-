@@ -1,5 +1,9 @@
 # Smart Pulse Oximeter
 
+## Working Steps
+[Click here to view the working steps](Working-Steps.md)
+
+
 ## Student Details
 
 | S. No. | Student Name | Registration Number |
