@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Pulse Oximeter · UART</title>
+<style>
+:root{
+  --bg:#f7f5f2; --card:#ffffff;
+  --txt:#1f2933; --txt2:#697386; --txt3:#9aa5b1;
+  --rose:#f2a4b8; --rose-d:#c96b83;
+  --sky:#a4c8e8; --sky-d:#5c8cb4;
+  --mint:#a4d9c4; --mint-d:#4ea088;
+  --lilac:#c7b7e6; --lilac-d:#8a72c9;
+  --amber:#f0d59a; --amber-d:#b89138;
+  --red:#e88f8f; --red-d:#c15656;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:"Inter",-apple-system,system-ui,sans-serif;
+  background:var(--bg);color:var(--txt);
+  min-height:100vh;font-feature-settings:"tnum";
+  overflow-x:hidden;
+}
+
+/* ---------- animated background ---------- */
+.bg-stage{
+  position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;
+  background:
+    radial-gradient(900px 700px at 12% 20%, #fdeef2 0%, transparent 55%),
+    radial-gradient(900px 700px at 88% 25%, #e8f2fb 0%, transparent 55%),
+    radial-gradient(800px 800px at 50% 110%, #eef8f2 0%, transparent 60%),
+    var(--bg);
+  transition:opacity .4s ease;
+}
+.bg-stage.calm .bg-pulse,
+.bg-stage.calm .bg-swirl{animation:none !important}
+.bg-stage.calm .bg-cell,
+.bg-stage.calm .bg-oxygen{display:none}
+.bg-stage.calm .bg-lungs{animation:none}
+
+.bg-pulse{
+  position:absolute;inset:0;
+  animation:bgBreathe var(--beat-duration,.85s) ease-in-out infinite;
+  transform-origin:50% 50%;
+}
+@keyframes bgBreathe{
+  0%,100%{transform:scale(1)}
+  14%{transform:scale(1.006)}
+  28%{transform:scale(1)}
+  42%{transform:scale(1.004)}
+  60%{transform:scale(1)}
+}
+.bg-lungs{
+  position:absolute;top:50%;right:-6vw;
+  width:44vw;max-width:640px;height:auto;
+  transform:translateY(-50%);opacity:.09;
+  animation:lungsBreath 6s ease-in-out infinite;
+  transform-origin:50% 55%;
+}
+@keyframes lungsBreath{
+  0%,100%{transform:translateY(-50%) scale(1)}
+  50%{transform:translateY(-50%) scale(1.02)}
+}
+.bg-cell{
+  position:absolute;width:14px;height:14px;border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, #f7cdd5 0%, #eb9aae 60%, #d97a94 100%);
+  opacity:.10;filter:blur(.4px);
+  animation:cellDrift linear infinite;will-change:transform;
+  transition:opacity .5s ease;
+}
+.bg-cell::after{
+  content:"";position:absolute;inset:3px;border-radius:50%;
+  background:radial-gradient(circle at 40% 40%, #fbe0e6, transparent 70%);
+}
+@keyframes cellDrift{
+  0%   {transform:translate3d(0,0,0) scale(1) rotate(0deg)}
+  50%  {transform:translate3d(6vw,-2vh,0) scale(1.08) rotate(180deg)}
+  100% {transform:translate3d(0,0,0) scale(1) rotate(360deg)}
+}
+.bg-oxygen{
+  position:absolute;width:6px;height:6px;border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, #ffffff, #bfe0f5 50%, #8ec2ea 100%);
+  box-shadow:0 0 6px rgba(140,190,230,.55);
+  animation:oxygenFlow linear infinite;will-change:transform,opacity;
+  transition:opacity .6s ease;
+}
+@keyframes oxygenFlow{
+  0%   {transform:translate3d(0,0,0) scale(.7); opacity:0}
+  15%  {opacity:var(--oxy-opacity,.18)}
+  85%  {opacity:var(--oxy-opacity,.18)}
+  100% {transform:translate3d(-46vw,0,0) scale(1); opacity:0}
+}
+.bg-swirl{
+  position:absolute;border-radius:50%;filter:blur(60px);opacity:.35;
+  animation:swirlFloat 22s ease-in-out infinite;will-change:transform;
+}
+@keyframes swirlFloat{
+  0%,100%{transform:translate3d(0,0,0) scale(1)}
+  50%    {transform:translate3d(3vw,-2vh,0) scale(1.08)}
+}
+@media(prefers-reduced-motion:reduce){
+  .bg-pulse,.bg-lungs,.bg-swirl{animation:none !important}
+  .bg-cell,.bg-oxygen{display:none}
+}
+
+/* ---------- UI ---------- */
+.wrap{max-width:1080px;margin:0 auto;padding:32px;position:relative;z-index:2}
+@media(max-width:640px){.wrap{padding:18px}}
+
+header{display:flex;align-items:center;gap:14px;margin-bottom:26px;flex-wrap:wrap}
+h1{font-size:20px;font-weight:700;letter-spacing:-.4px;margin-right:auto;
+  display:flex;align-items:center;gap:10px}
+h1::before{content:"♥";color:var(--rose-d);font-size:18px;display:inline-block;
+  animation:beatTitle var(--beat-duration,.85s) ease-in-out infinite}
+@keyframes beatTitle{
+  0%,100%{transform:scale(1)}
+  14%{transform:scale(1.22)}
+  28%{transform:scale(1)}
+  42%{transform:scale(1.14)}
+}
+.pill{font-size:12px;font-weight:600;padding:7px 14px;border-radius:99px;
+  background:rgba(255,255,255,.85);color:var(--txt2);border:1px solid #eeeae4;
+  display:flex;align-items:center;gap:6px;backdrop-filter:blur(8px)}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--txt3)}
+.pill.on{background:rgba(234,246,238,.9);color:#3d8b56;border-color:#cfe8d6}
+.pill.on::before{background:#4ea868}
+.pill.err{background:#fdeaea;color:#a32e2e;border-color:#f6d0d0}
+.pill.err::before{background:var(--red-d)}
+
+button{padding:10px 18px;border-radius:99px;border:1px solid #e5e0d8;
+  background:rgba(255,255,255,.85);color:var(--txt);font-size:13.5px;font-weight:600;
+  font-family:inherit;cursor:pointer;transition:.15s;backdrop-filter:blur(8px)}
+button:hover{background:#fff}
+button.pri{background:var(--txt);color:#fff;border-color:var(--txt)}
+button.pri:hover{background:#000}
+button.icon{padding:9px 12px;font-size:14px;line-height:1;
+  display:inline-flex;align-items:center;gap:6px}
+button.icon[aria-pressed="true"]{background:#fff6e0;border-color:#f0d59a;color:var(--amber-d)}
+
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+@media(max-width:800px){.strip{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.strip{grid-template-columns:1fr}}
+.strip>div{background:rgba(255,255,255,.92);border-radius:22px;padding:20px 22px;
+  box-shadow:0 1px 3px rgba(0,0,0,.04),0 8px 22px rgba(120,90,80,.04);
+  backdrop-filter:blur(14px) saturate(150%);
+  border:1px solid rgba(255,255,255,.7)}
+.strip .k{font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--txt3);margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.strip .k::before{content:"";width:8px;height:8px;border-radius:50%}
+.strip .hr .k::before{background:var(--rose-d)}
+.strip .spo2 .k::before{background:var(--sky-d)}
+.strip .rr .k::before{background:var(--mint-d)}
+.strip .pi .k::before{background:var(--lilac-d)}
+.strip .v{font-size:30px;font-weight:700;letter-spacing:-1.3px;line-height:1;
+  display:flex;align-items:baseline;gap:5px}
+.strip .u{font-size:12px;font-weight:600;color:var(--txt3)}
+
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:22px}
+@media(max-width:800px){.grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.grid{grid-template-columns:1fr}}
+.card{background:rgba(255,255,255,.92);border-radius:22px;padding:22px 24px;
+  box-shadow:0 1px 3px rgba(0,0,0,.04),0 8px 22px rgba(120,90,80,.04);
+  backdrop-filter:blur(14px) saturate(150%);
+  border:1px solid rgba(255,255,255,.7)}
+.card .lbl{font-size:11.5px;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--txt3);margin-bottom:12px}
+.card .big{font-size:40px;font-weight:700;letter-spacing:-1.8px;line-height:1;
+  display:flex;align-items:baseline;gap:6px;color:var(--txt)}
+.card .big .u{font-size:13px;font-weight:600;color:var(--txt3)}
+.card.good .big{color:#4ea868}
+.card.warn .big{color:var(--amber-d)}
+.card.bad  .big{color:var(--red-d)}
+
+.wave{background:rgba(255,255,255,.92);border-radius:22px;padding:24px;margin-bottom:22px;
+  box-shadow:0 1px 3px rgba(0,0,0,.04),0 8px 22px rgba(120,90,80,.04);
+  backdrop-filter:blur(14px) saturate(150%);
+  border:1px solid rgba(255,255,255,.7)}
+.wave h3{font-size:11.5px;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--txt3);margin-bottom:14px;
+  display:flex;justify-content:space-between}
+.wave .rate{color:var(--sky-d);font-variant-numeric:tabular-nums}
+canvas{width:100%;height:160px;display:block}
+
+.log{background:rgba(255,255,255,.92);border-radius:22px;padding:24px;
+  box-shadow:0 1px 3px rgba(0,0,0,.04),0 8px 22px rgba(120,90,80,.04);
+  backdrop-filter:blur(14px) saturate(150%);
+  border:1px solid rgba(255,255,255,.7)}
+.log h3{font-size:11.5px;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--txt3);margin-bottom:14px}
+.log ul{list-style:none;max-height:180px;overflow-y:auto}
+.log li{display:flex;gap:20px;padding:10px 0;font-size:13px;color:var(--txt2);
+  border-bottom:1px solid #f3efea;font-variant-numeric:tabular-nums}
+.log li:last-child{border:none}
+.log b{color:var(--txt);font-weight:700}
+</style>
+</head>
+<body>
+
+<div class="bg-stage" id="bgStage" aria-hidden="true">
+  <div class="bg-swirl" style="width:520px;height:520px;top:-180px;left:-120px;
+       background:radial-gradient(circle,#fbd5de 0%,transparent 70%)"></div>
+  <div class="bg-swirl" style="width:560px;height:560px;bottom:-200px;right:-160px;
+       background:radial-gradient(circle,#cfe6f7 0%,transparent 70%);
+       animation-delay:-8s"></div>
+  <div class="bg-swirl" style="width:480px;height:480px;top:40%;left:45%;
+       background:radial-gradient(circle,#d3eddf 0%,transparent 70%);
+       animation-delay:-14s"></div>
+
+  <div class="bg-pulse" id="bgPulse">
+    <svg class="bg-lungs" viewBox="0 0 400 500" xmlns="http://www.w3.org/2000/svg">
+      <path d="M200 20 L200 140
+               M200 140 C160 170 120 200 100 240
+               M200 140 C240 170 280 200 300 240"
+            stroke="#c96b83" stroke-width="6" fill="none" stroke-linecap="round"/>
+      <path d="M200 150 C140 170 90 220 80 290
+               C72 360 100 430 150 450 C180 460 200 440 200 400 Z"
+            fill="#f2a4b8" opacity="0.9"/>
+      <path d="M200 150 C260 170 310 220 320 290
+               C328 360 300 430 250 450 C220 460 200 440 200 400 Z"
+            fill="#f2a4b8" opacity="0.9"/>
+      <path d="M150 250 C130 280 120 320 125 360
+               M150 300 C160 330 165 360 160 400
+               M250 250 C270 280 280 320 275 360
+               M250 300 C240 330 235 360 240 400"
+            stroke="#c96b83" stroke-width="3" fill="none"
+            stroke-linecap="round" opacity="0.7"/>
+    </svg>
+    <div id="cells"></div>
+    <div id="oxygens"></div>
+  </div>
+</div>
+
+<div class="wrap">
+<header>
+  <h1>Pulse Oximeter · UART</h1>
+  <span class="pill" id="st">Disconnected</span>
+  <button id="demo">Demo</button>
+  <button class="pri" id="conn">Connect UART</button>
+  <button class="icon" id="motion" aria-pressed="false" title="Pause background animation">
+    <span id="motionIcon">◐</span><span id="motionLabel">Calm</span>
+  </button>
+</header>
+
+<div class="strip">
+  <div class="hr"><div class="k">Heart rate</div><div class="v"><span id="s1">--</span><span class="u">BPM</span></div></div>
+  <div class="spo2"><div class="k">SpO₂</div><div class="v"><span id="s2">--</span><span class="u">%</span></div></div>
+  <div class="rr"><div class="k">Respiration</div><div class="v"><span id="s3">--</span><span class="u">/min</span></div></div>
+  <div class="pi"><div class="k">Perfusion</div><div class="v"><span id="s4">--</span><span class="u">%</span></div></div>
+</div>
+
+<div class="grid">
+  <div class="card" id="cHR"><div class="lbl">Heart rate</div><div class="big"><span id="hr">--</span><span class="u">BPM</span></div></div>
+  <div class="card" id="cSp"><div class="lbl">Oxygen saturation</div><div class="big"><span id="spo2">--</span><span class="u">%</span></div></div>
+  <div class="card"><div class="lbl">HRV · RMSSD</div><div class="big"><span id="hrv">--</span><span class="u">ms</span></div></div>
+  <div class="card"><div class="lbl">Signal quality</div><div class="big"><span id="sqi">--</span><span class="u">%</span></div></div>
+  <div class="card"><div class="lbl">Respiration</div><div class="big"><span id="rr">--</span><span class="u">/min</span></div></div>
+  <div class="card"><div class="lbl">Beats in window</div><div class="big"><span id="beat">--</span></div></div>
+</div>
+
+<div class="wave">
+  <h3><span>Live PPG · IR</span><span class="rate" id="rate">0 Hz</span></h3>
+  <canvas id="cv" width="1400" height="160"></canvas>
+</div>
+
+<div class="log"><h3>Session log</h3><ul id="lg"></ul></div>
+</div>
+
+<script>
+/* ============================================================
+   BACKGROUND
+   ============================================================ */
+const BG = (function(){
+  const stage  = document.getElementById('bgStage');
+  const pulse  = document.getElementById('bgPulse');
+  const cells  = document.getElementById('cells');
+  const oxygens= document.getElementById('oxygens');
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let currentBeatSec = 0.85;
+  function setHeartRate(bpm){
+    if (!bpm || bpm < 30 || bpm > 220) { applyBeatDuration(60/70); return; }
+    applyBeatDuration(60 / bpm);
+  }
+  function applyBeatDuration(seconds){
+    const target = Math.max(0.25, Math.min(2.0, seconds));
+    const start = currentBeatSec;
+    const t0 = performance.now();
+    const DURATION = 500;
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / DURATION);
+      const eased = k * k * (3 - 2 * k);
+      currentBeatSec = start + (target - start) * eased;
+      document.documentElement.style.setProperty(
+        '--beat-duration', currentBeatSec.toFixed(3) + 's');
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  const OXY_POOL = 24;
+  const particles = [];
+  function buildOxygenPool(){
+    const H = window.innerHeight;
+    for (let i = 0; i < OXY_POOL; i++){
+      const p = document.createElement('div');
+      p.className = 'bg-oxygen';
+      const size = 4 + Math.random() * 4;
+      p.style.width  = size + 'px';
+      p.style.height = size + 'px';
+      p.style.right = (8 + Math.random() * 20) + 'vw';
+      p.style.top   = (Math.random() * H) + 'px';
+      const dur = 9 + Math.random() * 10;
+      p.style.animationDuration = dur + 's';
+      p.style.animationDelay    = (-Math.random() * dur) + 's';
+      p.style.setProperty('--oxy-opacity', '.18');
+      p.dataset.active = '1';
+      oxygens.appendChild(p);
+      particles.push(p);
+    }
+  }
+  function setSpo2(spo2){
+    let visible;
+    if (!spo2 || spo2 <= 0) visible = OXY_POOL;
+    else {
+      const clamped = Math.max(88, Math.min(100, spo2));
+      visible = Math.round(4 + ((clamped - 88) / 12) * (OXY_POOL - 4));
+    }
+    const baseOpacity = (!spo2 || spo2 <= 0) ? 0.18
+      : 0.10 + 0.08 * ((Math.max(88, Math.min(100, spo2)) - 88) / 12);
+
+    const shuffled = particles.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    shuffled.forEach((p, i) => {
+      const active = i < visible;
+      if (p.dataset.active === (active ? '1' : '0')) return;
+      p.dataset.active = active ? '1' : '0';
+      p.style.opacity = active ? baseOpacity : 0;
+      p.style.animationPlayState = active ? 'running' : 'paused';
+    });
+  }
+  function buildCells(){
+    const W = window.innerWidth, H = window.innerHeight;
+    for (let i = 0; i < 12; i++){
+      const c = document.createElement('div');
+      c.className = 'bg-cell';
+      const size = 10 + Math.random() * 14;
+      c.style.width  = size + 'px';
+      c.style.height = size + 'px';
+      c.style.left = (Math.random() * W) + 'px';
+      c.style.top  = (Math.random() * H) + 'px';
+      const dur = 18 + Math.random() * 22;
+      c.style.animationDuration = dur + 's';
+      c.style.animationDelay    = (-Math.random() * dur) + 's';
+      c.style.opacity = (0.06 + Math.random() * 0.06).toFixed(3);
+      cells.appendChild(c);
+    }
+  }
+
+  const STORAGE_KEY = 'pulseOxCalm';
+  let calm = false;
+  function setCalm(on, persist = true){
+    calm = !!on;
+    stage.classList.toggle('calm', calm);
+    const btn = document.getElementById('motion');
+    btn.setAttribute('aria-pressed', String(calm));
+    document.getElementById('motionIcon').textContent  = calm ? '▶' : '◐';
+    document.getElementById('motionLabel').textContent = calm ? 'Motion' : 'Calm';
+    if (persist) { try { localStorage.setItem(STORAGE_KEY, calm ? '1' : '0'); } catch(_) {} }
+  }
+  function loadCalmPref(){
+    let saved = null;
+    try { saved = localStorage.getItem(STORAGE_KEY); } catch(_) {}
+    if (saved === '1') setCalm(true, false);
+    else if (saved === '0') setCalm(false, false);
+    else if (reduceMotion) setCalm(true, false);
+    else setCalm(false, false);
+  }
+
+  if (!reduceMotion) {
+    buildCells();
+    buildOxygenPool();
+    setSpo2(null);
+  }
+  applyBeatDuration(currentBeatSec);
+  loadCalmPref();
+
+  return {
+    setHeartRate, setSpo2, setCalm,
+    get calm(){ return calm; },
+    get enabled(){ return !reduceMotion; }
+  };
+})();
+
+document.getElementById('motion').addEventListener('click', () => {
+  BG.setCalm(!BG.calm);
+});
+
+/* ============================================================
+   STATE
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const wave = new Array(600).fill(0);
+let base = 0, bi = false, dirty = false, times = [], log = [];
+let demoT = null, demoW = null;
+const cv = $('cv'), ctx = cv.getContext('2d');
+
+function pushIR(v){
+  if(!bi){ base = v; bi = true; }
+  base = base * 0.995 + v * 0.005;
+  wave.push(v - base); wave.shift(); dirty = true;
+  times.push(performance.now());
+  if (times.length > 100) times.shift();
+}
+
+function draw(){
+  if (!dirty) return;
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.strokeStyle = '#f3efea'; ctx.lineWidth = 1;
+  for (let y = H/4; y < H; y += H/4) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  let mn = Infinity, mx = -Infinity;
+  wave.forEach(v => { if (v === 0) return; if (v < mn) mn = v; if (v > mx) mx = v; });
+  if (!isFinite(mn)) { mn = -1; mx = 1; }
+  const r = Math.max(mx - mn, 1e-6);
+
+  ctx.beginPath();
+  wave.forEach((v, i) => {
+    const x = i / (wave.length - 1) * W;
+    const y = H - ((v - mn) / r) * (H - 26) - 12;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.strokeStyle = '#5c8cb4';
+  ctx.lineWidth = 2.4;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  dirty = false;
+
+  if (times.length > 10) {
+    const dt = (times[times.length-1] - times[0]) / 1000;
+    $('rate').textContent = Math.round((times.length - 1) / dt) + ' Hz';
+  }
+}
+setInterval(draw, 50);
+
+function setV(id, t){
+  const el = $(id);
+  if (el.textContent !== t) el.textContent = t;
+}
+
+function ingest(v){
+  setV('hr', v.hr > 0 ? v.hr : '--');
+  setV('spo2', v.spo2 > 0 ? v.spo2 : '--');
+  setV('hrv', v.hrv > 0 ? v.hrv : '--');
+  setV('sqi', v.sqi > 0 ? v.sqi : '--');
+  setV('rr', v.rr > 0 ? v.rr : '--');
+  setV('beat', v.beat > 0 ? v.beat : '--');
+  setV('s1', v.hr > 0 ? v.hr : '--');
+  setV('s2', v.spo2 > 0 ? v.spo2 : '--');
+  setV('s3', v.rr > 0 ? v.rr : '--');
+  setV('s4', v.pi > 0 ? (v.pi/10).toFixed(1) : '--');
+
+  if (v.hr > 0)   BG.setHeartRate(v.hr);
+  if (v.spo2 > 0) BG.setSpo2(v.spo2);
+
+  const hrc = $('cHR'); hrc.className = 'card';
+  if (v.hr > 0) {
+    if (v.hr < 50 || v.hr > 120) hrc.classList.add('bad');
+    else if (v.hr < 60 || v.hr > 100) hrc.classList.add('warn');
+    else hrc.classList.add('good');
+  }
+  const spc = $('cSp'); spc.className = 'card';
+  if (v.spo2 > 0) {
+    if (v.spo2 < 92) spc.classList.add('bad');
+    else if (v.spo2 < 95) spc.classList.add('warn');
+    else spc.classList.add('good');
+  }
+
+  const t = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  log.unshift({ t, ...v });
+  if (log.length > 20) log.pop();
+  $('lg').innerHTML = log.map(r =>
+    `<li><span>${r.t}</span>
+      <span>HR <b>${r.hr||'--'}</b></span>
+      <span>SpO₂ <b>${r.spo2||'--'}</b>%</span>
+      <span>PI <b>${r.pi?(r.pi/10).toFixed(1):'--'}</b></span></li>`
+  ).join('');
+}
+
+function parse(line){
+  line = line.trim();
+  if (!line) return;
+  if (line.startsWith('W:')) {
+    const v = parseInt(line.slice(2), 10);
+    if (!isNaN(v)) pushIR(v);
+    return;
+  }
+  const body = line.startsWith('V:') ? line.slice(2) : line;
+  const o = {};
+  body.split(',').forEach(p => {
+    const [k, val] = p.split(':');
+    const n = parseInt(val, 10);
+    if (isNaN(n)) return;
+    const K = k.trim().toUpperCase();
+    if (K === 'HR')   o.hr   = n;
+    if (K === 'SPO2') o.spo2 = n;
+    if (K === 'PI')   o.pi   = n;
+    if (K === 'SQI')  o.sqi  = n;
+    if (K === 'HRV')  o.hrv  = n;
+    if (K === 'RR')   o.rr   = n;
+    if (K === 'BEAT') o.beat = n;
+  });
+  if (Object.keys(o).length) ingest(o);
+}
+
+/* ---------- Demo ---------- */
+function startDemo(){
+  if (demoT) { stopDemo(); return; }
+  $('st').textContent = 'Demo';
+  $('st').className = 'pill on';
+  let hr = 72, sp = 98, pi = 24, sq = 92, hv = 42, rr = 16, bt = 8;
+  const d = (v, a, mn, mx) => Math.max(mn, Math.min(mx, v + (Math.random() - .5) * a));
+  let ph = 0;
+  demoW = setInterval(() => {
+    const pd = 60 / hr, dt = 1 / 100;
+    ph = (ph + dt / pd) % 1;
+    const s = Math.exp(-Math.pow((ph - .18) * 7, 2));
+    const dc = .35 * Math.exp(-Math.pow((ph - .42) * 12, 2));
+    pushIR(Math.round(100000 + (s + dc) * 2200 + (Math.random() - .5) * 15));
+  }, 10);
+  demoT = setInterval(() => {
+    hr = d(hr, 4, 55, 110); sp = d(sp, 1.2, 90, 100);
+    pi = d(pi, 3, 12, 60);  sq = d(sq, 5, 45, 100);
+    hv = d(hv, 5, 25, 75);  rr = d(rr, 1, 10, 22);
+    bt = Math.round(hr / 6) + (Math.random() > .5 ? 1 : 0);
+    ingest({
+      hr: Math.round(hr), spo2: Math.round(sp), pi: Math.round(pi),
+      sqi: Math.round(sq), hrv: Math.round(hv), rr: Math.round(rr), beat: bt
+    });
+  }, 1000);
+}
+function stopDemo(){
+  clearInterval(demoT); clearInterval(demoW);
+  demoT = demoW = null;
+  $('st').textContent = 'Disconnected';
+  $('st').className = 'pill';
+}
+
+/* ============================================================
+   WEB SERIAL — WIRED UART
+   ============================================================ */
+let port = null;
+let reader = null;
+let keepReading = false;
+
+async function connectSerial(){
+  if (!('serial' in navigator)) {
+    $('st').textContent = 'Web Serial not supported';
+    $('st').className = 'pill err';
+    alert('Web Serial requires Chrome or Edge 117+ on desktop. ' +
+          'Open this page in Chrome/Edge and connect the USB-TTL adapter.');
+    return;
+  }
+
+  try {
+    $('st').textContent = 'Choose UART port…';
+    $('st').className = 'pill';
+
+    // Wired UART: pick the USB-TTL / FTDI / CH340 / CP2102 COM port
+    // wired to STM32 PA2 (TX) and PA3 (RX).
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+
+    stopDemo();
+    keepReading = true;
+    $('st').textContent = 'UART Connected';
+    $('st').className = 'pill on';
+
+    readLoop();
+
+  } catch (e) {
+    console.error(e);
+    $('st').textContent = 'UART connection failed';
+    $('st').className = 'pill err';
+  }
+}
+
+async function readLoop(){
+  const decoder = new TextDecoderStream();
+  const closed = port.readable.pipeTo(decoder.writable).catch(() => {});
+  const rdr = decoder.readable.getReader();
+  reader = rdr;
+  let buffer = '';
+
+  try {
+    while (keepReading) {
+      const { value, done } = await rdr.read();
+      if (done) break;
+      buffer += value;
+      let idx;
+      while ((idx = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, idx).replace('\r', '');
+        buffer = buffer.slice(idx + 1);
+        if (line.trim()) parse(line);
+      }
+      if (buffer.length > 8192) buffer = buffer.slice(-2048);
+    }
+  } catch (e) {
+    console.error(e);
+  } finally {
+    try { rdr.releaseLock(); } catch(_) {}
+    await closed;
+    $('st').textContent = 'Disconnected';
+    $('st').className = 'pill';
+  }
+}
+
+async function disconnectSerial(){
+  keepReading = false;
+  if (reader) { try { await reader.cancel(); } catch(_) {} reader = null; }
+  if (port)   { try { await port.close(); }   catch(_) {} port   = null; }
+}
+
+$('demo').onclick = startDemo;
+$('conn').onclick = async () => {
+  if (port) { await disconnectSerial(); return; }
+  connectSerial();
+};
+
+startDemo();
+</script>
+</body>
+</html>
